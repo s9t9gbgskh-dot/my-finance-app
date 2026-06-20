@@ -26,8 +26,11 @@ if st.session_state.user is None:
     tab_login, tab_signup = st.tabs(["登入", "註冊新帳號"])
 
     with tab_login:
-        login_email = st.text_input("信箱 (Email)")
-        login_password = st.text_input("密碼 (Password)", type="password")
+        # 加上 autocomplete="username" 讓手機知道這是帳號欄位
+        login_email = st.text_input("信箱 (Email)", autocomplete="username")
+        
+        # 加上 autocomplete="current-password" 讓手機準備啟動 Face ID
+        login_password = st.text_input("密碼 (Password)", type="password", autocomplete="current-password")
         if st.button("登入"):
             try:
                 response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
