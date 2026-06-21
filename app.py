@@ -26,16 +26,13 @@ if st.session_state.user is None:
     tab_login, tab_signup = st.tabs(["登入", "註冊新帳號"])
 
     with tab_login:
-        # 🌟 關鍵改動 1：加入 st.form 產生標準 HTML 表單
-        with st.form(key="login_form"):
-            login_email = st.text_input("信箱 (Email)", autocomplete="username")
-            login_password = st.text_input("密碼 (Password)", type="password", autocomplete="current-password")
-            
-            # 🌟 關鍵改動 2：換成 form 專用的送出按鈕
-            submit_login = st.form_submit_button("登入", type="primary")
-
-        # 🌟 關鍵改動 3：用 submit_login 來判斷是否執行登入
-        if submit_login:
+        # 🌟 把 st.form 拆掉了，解除 iOS 的觸控封印！
+        # 但保留了 autocomplete 暗號，確保 Face ID 依然認得出來
+        login_email = st.text_input("信箱 (Email)", autocomplete="username")
+        login_password = st.text_input("密碼 (Password)", type="password", autocomplete="current-password")
+        
+        # 🌟 換回原本單純的按鈕
+        if st.button("登入"):
             try:
                 response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
                 st.session_state.user = response.user
