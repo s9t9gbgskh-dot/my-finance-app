@@ -23,32 +23,36 @@ if st.session_state.user is None:
     st.title("🔐 歡迎來到專屬資產管理系統")
     st.write("請先登入或註冊帳號，系統將為您建立專屬且加密的資料庫。")
 
-    tab_login, tab_signup = st.tabs(["登入", "註冊新帳號"])
+    # 🚀 終極改動 1：徹底移除容易在 iOS 當機的 st.tabs，改用單純的點擊選項
+    login_mode = st.radio("選擇操作", ["登入", "註冊新帳號"], horizontal=True, label_visibility="collapsed")
 
-    with tab_login:
-        # 🌟 把 st.form 拆掉了，解除 iOS 的觸控封印！
-        # 但保留了 autocomplete 暗號，確保 Face ID 依然認得出來
-        login_email = st.text_input("信箱 (Email)", autocomplete="username")
-        login_password = st.text_input("密碼 (Password)", type="password", autocomplete="current-password")
-        
-        # 🌟 換回原本單純的按鈕
-        if st.button("登入"):
-            try:
-                response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
-                st.session_state.user = response.user
-                st.rerun()
-            except Exception as e:
-                st.error("登入失敗，請檢查帳號密碼。")
+    if login_mode == "登入":
+        # 🚀 終極改動 2：加回 st.form，強迫系統抓取 Face ID 填入的資料
+        with st.form(key="login_form"):
+            login_email = st.text_input("信箱 (Email)", autocomplete="username")
+            login_password = st.text_input("密碼 (Password)", type="password", autocomplete="current-password")
+            submit_login = st.form_submit_button("登入", type="primary")
 
-    with tab_signup:
-        signup_email = st.text_input("註冊信箱 (Email)")
-        signup_password = st.text_input("設定密碼 (至少 6 碼)", type="password")
-        if st.button("註冊帳號"):
-            try:
-                response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
-                st.success("🎉 註冊成功！請直接切換到左側「登入」分頁進行登入。")
-            except Exception as e:
-                st.error(f"註冊失敗：{e}")
+            if submit_login:
+                try:
+                    response = supabase.auth.sign_in_with_password({"email": login_email, "password": login_password})
+                    st.session_state.user = response.user
+                    st.rerun()
+                except Exception as e:
+                    st.error("登入失敗，請檢查帳號密碼。")
+
+    else:
+        with st.form(key="signup_form"):
+            signup_email = st.text_input("註冊信箱 (Email)")
+            signup_password = st.text_input("設定密碼 (至少 6 碼)", type="password")
+            submit_signup = st.form_submit_button("註冊帳號")
+
+            if submit_signup:
+                try:
+                    response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
+                    st.success("🎉 註冊成功！請點擊上方選項切換回「登入」。")
+                except Exception as e:
+                    st.error(f"註冊失敗：{e}")
 
     st.stop() 
 
