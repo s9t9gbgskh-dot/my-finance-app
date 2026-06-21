@@ -158,16 +158,15 @@ with tab3:
     st.info("💡 **輸入指南**：美股直接輸入代碼（例 `NVDA`）、台股加 `.TW`（例 `2330.TW`）、加密貨幣輸入國際代碼（例 `BTC-USD`）\n\n"
             "💵 **幣別指南**：台股請輸入「台幣」本金，美股與加密貨幣請填寫「美金」本金。系統將自動抓取即時匯率計算總資產。")
     
+    # 🌟 移除了 key="portfolio_editor" 與 default 參數，徹底解決「輸入兩次才讀得到」的 Bug
     st.session_state.portfolio = st.data_editor(
         st.session_state.portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
         column_config={
-            # 🌟 修復自動刪除 Bug：加入 default="台股" 與 required=True
-            "市場": st.column_config.SelectboxColumn("市場", options=["台股", "美股", "加密貨幣"], default="台股", required=True),
+            "市場": st.column_config.SelectboxColumn("市場", options=["台股", "美股", "加密貨幣"], required=True),
             "股票代碼": st.column_config.TextColumn("股票代碼 (Ticker)", required=True),
-            "持有股數": st.column_config.NumberColumn("持有股數", step=1.0, default=0.0),
-            # 拿掉強制顯示的 $ 符號，避免幣別混淆
-            "投入本金": st.column_config.NumberColumn("投入本金 (台股:TWD / 海外:USD)", step=100.0, default=0.0)
-        }, key="portfolio_editor"
+            "持有股數": st.column_config.NumberColumn("持有股數", step=1.0),
+            "投入本金": st.column_config.NumberColumn("投入本金 (台股:TWD / 海外:USD)", step=100.0)
+        }
     )
 
     if st.button("🔄 更新最新即時報價與績效"):
@@ -177,12 +176,11 @@ with tab3:
             st.warning("請先輸入股票代碼！")
         else:
             with st.spinner('🌐 連線全球交易所與抓取即時匯率中...'):
-                # 🌟 抓取最新 USD/TWD 匯率
+                # 抓取最新 USD/TWD 匯率
                 try:
                     usd_to_twd = yf.Ticker("TWD=X").history(period="1d")['Close'].iloc[-1]
-                    st.caption(f"💱 目前即時匯率: **1 USD = {usd_to_twd:.2f} TWD**")
                 except Exception:
-                    usd_to_twd = 32.5 # 如果網路異常的備用匯率
+                    usd_to_twd = 32.5 
                     st.warning("⚠️ 匯率抓取失敗，暫時使用預設匯率 32.5")
 
                 cols = st.columns(3)
@@ -200,21 +198,17 @@ with tab3:
                         current_price = ticker.history(period="1d")['Close'].iloc[-1]
                         current_value = current_price * shares
                         
-                        # 算單檔標的 ROI (不考慮匯差的純粹資產漲跌)
                         roi = ((current_value - principal) / principal) * 100 if principal > 0 else 0
 
-                        # 🌟 依據市場進行幣別判定與匯率換算
                         if market == "台股":
                             currency_sym = "NT$"
                             principal_twd = principal
                             value_twd = current_value
                         else:
                             currency_sym = "US$"
-                            # 美股與虛擬貨幣，將本金與現值乘上匯率轉為台幣
                             principal_twd = principal * usd_to_twd
                             value_twd = current_value * usd_to_twd
 
-                        # 累加至總資產 (台幣計價)
                         total_invest_twd += principal_twd
                         total_val_twd += value_twd
 
@@ -229,9 +223,10 @@ with tab3:
                         with cols[i % 3]: st.error(f"無法抓取 {ticker_symbol}")
                 
                 st.markdown("---")
+                # 🌟 將匯率整合到總資產的標籤旁邊
                 st.subheader("📊 總體投資績效 (全數換算台幣)")
                 overall_roi = ((total_val_twd - total_invest_twd) / total_invest_twd) * 100 if total_invest_twd > 0 else 0
-                st.metric("總資產現值 (TWD)", f"NT$ {total_val_twd:,.0f}", f"整體報酬率: {overall_roi:.2f}%")
+                st.metric(f"總資產現值 (TWD) ｜ 💱 匯率: 1 USD = {usd_to_twd:.2f} TWD", f"NT$ {total_val_twd:,.0f}", f"整體報酬率: {overall_roi:.2f}%")
 
 with tab4:
     st.subheader("💳 多帳戶資金樞紐與代墊管理")
