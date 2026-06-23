@@ -59,47 +59,57 @@ if "data_loaded" not in st.session_state:
     if response.data and response.data[0]["data"]:
         cloud_data = response.data[0]["data"]
         
-        # 🛡️ 終極防呆機制：如果雲端存的是空陣列，強制賦予完整的欄位名稱，避免 KeyError
+        # 🛡️ 拆分變數：建立「基準線 (base)」防止畫面彈跳與 KeyError 空值崩潰
         dl = cloud_data.get("debt_list", [])
-        st.session_state.debt_list = pd.DataFrame(dl) if dl else pd.DataFrame(columns=["已結清", "項目", "金額", "償還來源"])
+        st.session_state.base_debt_list = pd.DataFrame(dl) if dl else pd.DataFrame(columns=["已結清", "項目", "金額", "償還來源"])
         
         st.session_state.loan_data = cloud_data.get("loan_data", {"principal": 500000.0, "rate": 2.5, "periods": 60})
         
         cb = cloud_data.get("custom_banks_v3", [])
-        st.session_state.custom_banks_v3 = pd.DataFrame(cb) if cb else pd.DataFrame(columns=["功能標籤", "銀行名稱", "帳戶總額"])
+        st.session_state.base_custom_banks_v3 = pd.DataFrame(cb) if cb else pd.DataFrame(columns=["功能標籤", "銀行名稱", "帳戶總額"])
         
         pf = cloud_data.get("portfolio", [])
-        st.session_state.portfolio = pd.DataFrame(pf) if pf else pd.DataFrame(columns=["市場", "股票代碼", "持有股數", "投入本金"])
+        st.session_state.base_portfolio = pd.DataFrame(pf) if pf else pd.DataFrame(columns=["市場", "股票代碼", "持有股數", "投入本金"])
         
         fe = cloud_data.get("future_events", [])
-        st.session_state.future_events = pd.DataFrame(fe) if fe else pd.DataFrame(columns=["發生月份", "事件名稱", "金額"])
+        st.session_state.base_future_events = pd.DataFrame(fe) if fe else pd.DataFrame(columns=["發生月份", "事件名稱", "金額"])
     else:
         # 預設資料 (新註冊的使用者會看到這個)
-        st.session_state.debt_list = pd.DataFrame({"已結清": [False]*7, "項目": ["釜山行程超支", "Elantra 車輛花費", "露營裝備", "潛水裝備", "Garmin 手錶", "五月透支", "宮古島機酒"], "金額": [10661, 14955, 32339, 18570, 42780, 13000, 27460], "償還來源": ["七月分紅", "七月分紅", "七月分紅", "七月分紅", "七月分紅", "六月加班費", "八月分紅"]})
+        st.session_state.base_debt_list = pd.DataFrame({"已結清": [False]*7, "項目": ["釜山行程超支", "Elantra 車輛花費", "露營裝備", "潛水裝備", "Garmin 手錶", "五月透支", "宮古島機酒"], "金額": [10661, 14955, 32339, 18570, 42780, 13000, 27460], "償還來源": ["七月分紅", "七月分紅", "七月分紅", "七月分紅", "七月分紅", "六月加班費", "八月分紅"]})
         st.session_state.loan_data = {"principal": 500000.0, "rate": 2.5, "periods": 60}
-        st.session_state.custom_banks_v3 = pd.DataFrame({"功能標籤": ["一般活存"], "銀行名稱": ["渣打銀行"], "帳戶總額": [11111]})
-        st.session_state.portfolio = pd.DataFrame({"市場": ["台股", "美股"], "股票代碼": ["2330.TW", "NVDA"], "持有股數": [321.0, 50.0], "投入本金": [445223.0, 5000.0]})   
-        st.session_state.future_events = pd.DataFrame({"發生月份": ["第 1 個月", "第 1 個月", "第 2 個月", "第 10 個月"], "事件名稱": ["七月季分紅", "宮古島機酒扣款", "八月季分紅", "繳納牌照稅"], "金額": [140000, -27460, 140000, -7120]})
+        st.session_state.base_custom_banks_v3 = pd.DataFrame({"功能標籤": ["一般活存"], "銀行名稱": ["渣打銀行"], "帳戶總額": [11111]})
+        st.session_state.base_portfolio = pd.DataFrame({"市場": ["台股", "美股"], "股票代碼": ["2330.TW", "NVDA"], "持有股數": [321.0, 50.0], "投入本金": [445223.0, 5000.0]})   
+        st.session_state.base_future_events = pd.DataFrame({"發生月份": ["第 1 個月", "第 1 個月", "第 2 個月", "第 10 個月"], "事件名稱": ["七月季分紅", "宮古島機酒扣款", "八月季分紅", "繳納牌照稅"], "金額": [140000, -27460, 140000, -7120]})
     
+    # 同步初始化 current 狀態
+    st.session_state.current_debt_list = st.session_state.base_debt_list.copy()
+    st.session_state.current_custom_banks_v3 = st.session_state.base_custom_banks_v3.copy()
+    st.session_state.current_portfolio = st.session_state.base_portfolio.copy()
+    st.session_state.current_future_events = st.session_state.base_future_events.copy()
+
     st.session_state.data_loaded = True
 
 # 側邊欄控制與儲存機制
 st.sidebar.success(f"👤 目前登入：\n{st.session_state.user.email}")
-
 st.sidebar.markdown("---")
-# 🌟 雲端儲存按鈕
+
 if st.sidebar.button("💾 儲存變更至雲端", type="primary"):
     with st.spinner("雲端同步中..."):
-        # 將目前的狀態打包成字典
         current_data = {
-            "debt_list": st.session_state.debt_list.to_dict('records'),
+            "debt_list": st.session_state.current_debt_list.to_dict('records'),
             "loan_data": st.session_state.loan_data,
-            "custom_banks_v3": st.session_state.custom_banks_v3.to_dict('records'),
-            "portfolio": st.session_state.portfolio.to_dict('records'),
-            "future_events": st.session_state.future_events.to_dict('records')
+            "custom_banks_v3": st.session_state.current_custom_banks_v3.to_dict('records'),
+            "portfolio": st.session_state.current_portfolio.to_dict('records'),
+            "future_events": st.session_state.current_future_events.to_dict('records')
         }
-        # 覆蓋寫入 Supabase
         supabase.table("user_data").upsert({"user_id": st.session_state.user.id, "data": current_data}).execute()
+        
+        # 🛡️ 儲存後，把當前的狀態變成新的基準線，確保下次動作不會跳回舊資料
+        st.session_state.base_debt_list = st.session_state.current_debt_list.copy()
+        st.session_state.base_custom_banks_v3 = st.session_state.current_custom_banks_v3.copy()
+        st.session_state.base_portfolio = st.session_state.current_portfolio.copy()
+        st.session_state.base_future_events = st.session_state.current_future_events.copy()
+        
     st.sidebar.success("✅ 已安全儲存！關閉網頁資料也不會遺失。")
 
 st.sidebar.markdown("---")
@@ -110,7 +120,7 @@ if st.sidebar.button("登出"):
     st.rerun()
 
 # ==================================================================
-# 👇 系統核心介面 (不變)
+# 👇 系統核心介面
 # ==================================================================
 st.title("💰 我的專屬資產管理系統")
 tab1, tab2, tab3, tab4 = st.tabs(["📊 總覽儀表板", "🏦 12個月資金跑道", "📈 投資部位", "💳 帳戶與代墊"])
@@ -133,9 +143,10 @@ with tab2:
     st.markdown("### 🔮 模擬未來大筆收支")
     month_options = [f"第 {i} 個月" for i in range(1, 13)]
 
-    st.session_state.future_events = st.data_editor(
-        st.session_state.future_events, num_rows="dynamic", use_container_width=True, hide_index=True,
-       column_config={
+    # 🛡️ 改用 base 作為輸入，current 接收輸出
+    st.session_state.current_future_events = st.data_editor(
+        st.session_state.base_future_events, num_rows="dynamic", use_container_width=True, hide_index=True,
+        column_config={
             "發生月份": st.column_config.SelectboxColumn("發生月份", options=month_options, required=True),
             "事件名稱": st.column_config.TextColumn("事件名稱", required=True),
             "金額": st.column_config.NumberColumn("金額 (收入正數，支出負數)", default=0, step=1, format="$ %d")
@@ -148,7 +159,7 @@ with tab2:
     runway_data = []
     for i in range(1, 13):
         month_label = f"第 {i} 個月"
-        month_events = st.session_state.future_events[st.session_state.future_events["發生月份"] == month_label]
+        month_events = st.session_state.current_future_events[st.session_state.current_future_events["發生月份"] == month_label]
         if not month_events.empty:
             event_names = " + ".join(month_events["事件名稱"].dropna().astype(str).tolist())
             event_total = month_events["金額"].sum()
@@ -167,25 +178,24 @@ with tab3:
     st.info("💡 **輸入指南**：美股直接輸入代碼（例 `NVDA`）、台股加 `.TW`（例 `2330.TW`）、加密貨幣輸入國際代碼（例 `BTC-USD`）\n\n"
             "💵 **幣別指南**：台股請輸入「台幣」本金，美股與加密貨幣請填寫「美金」本金。系統將自動抓取即時匯率計算總資產。")
     
-    # 🌟 移除了 key="portfolio_editor" 與 default 參數，徹底解決「輸入兩次才讀得到」的 Bug
-    st.session_state.portfolio = st.data_editor(
-        st.session_state.portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
+    # 🛡️ 改用 base 作為輸入，current 接收輸出
+    st.session_state.current_portfolio = st.data_editor(
+        st.session_state.base_portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
         column_config={
             "市場": st.column_config.SelectboxColumn("市場", options=["台股", "美股", "加密貨幣"], required=True),
             "股票代碼": st.column_config.TextColumn("股票代碼 (Ticker)", required=True),
             "持有股數": st.column_config.NumberColumn("持有股數", step=1.0),
             "投入本金": st.column_config.NumberColumn("投入本金 (台股:TWD / 海外:USD)", step=100.0)
-        }
+        }, key="portfolio_editor"
     )
 
     if st.button("🔄 更新最新即時報價與績效"):
-        valid_stocks = st.session_state.portfolio.dropna(subset=["股票代碼"])
+        valid_stocks = st.session_state.current_portfolio.dropna(subset=["股票代碼"])
         valid_stocks = valid_stocks[valid_stocks["股票代碼"].str.strip() != ""]
         if valid_stocks.empty: 
             st.warning("請先輸入股票代碼！")
         else:
             with st.spinner('🌐 連線全球交易所與抓取即時匯率中...'):
-                # 抓取最新 USD/TWD 匯率
                 try:
                     usd_to_twd = yf.Ticker("TWD=X").history(period="1d")['Close'].iloc[-1]
                 except Exception:
@@ -232,7 +242,6 @@ with tab3:
                         with cols[i % 3]: st.error(f"無法抓取 {ticker_symbol}")
                 
                 st.markdown("---")
-                # 🌟 將匯率整合到總資產的標籤旁邊
                 st.subheader("📊 總體投資績效 (全數換算台幣)")
                 overall_roi = ((total_val_twd - total_invest_twd) / total_invest_twd) * 100 if total_invest_twd > 0 else 0
                 st.metric(f"總資產現值 (TWD) ｜ 💱 匯率: 1 USD = {usd_to_twd:.2f} TWD", f"NT$ {total_val_twd:,.0f}", f"整體報酬率: {overall_roi:.2f}%")
@@ -252,8 +261,9 @@ with tab4:
             bank_3_name = st.text_input(f"設定核心銀行 (3)", value="國泰銀行")
         
         st.write("新增其他一般活存帳戶：")
-        st.session_state.custom_banks_v3 = st.data_editor(
-            st.session_state.custom_banks_v3, num_rows="dynamic", use_container_width=True, hide_index=True, 
+        # 🛡️ 改用 base 作為輸入，current 接收輸出
+        st.session_state.current_custom_banks_v3 = st.data_editor(
+            st.session_state.base_custom_banks_v3, num_rows="dynamic", use_container_width=True, hide_index=True, 
             column_config={"帳戶總額": st.column_config.NumberColumn("帳戶總額", default=0, step=1, format="$ %d")}, key="custom_banks_editor_v3"
         )
 
@@ -285,8 +295,9 @@ with tab4:
         union_total = st.number_input("帳戶總金額 (a)", value=250000, step=1, key="union_total")
         union_cc = st.number_input("本期信用卡繳款 (d)", value=8000, step=1)
         st.markdown("**📋 動態待沖銷清單 (c)**")
-        st.session_state.debt_list = st.data_editor(st.session_state.debt_list, num_rows="dynamic", use_container_width=True, column_config={"金額": st.column_config.NumberColumn("金額", format="$%d")}, key="debt_editor")
-        total_debt = st.session_state.debt_list[st.session_state.debt_list["已結清"] == False]["金額"].sum()
+        # 🛡️ 改用 base 作為輸入，current 接收輸出
+        st.session_state.current_debt_list = st.data_editor(st.session_state.base_debt_list, num_rows="dynamic", use_container_width=True, column_config={"金額": st.column_config.NumberColumn("金額", format="$%d")}, key="debt_editor")
+        total_debt = st.session_state.current_debt_list[st.session_state.current_debt_list["已結清"] == False]["金額"].sum()
         st.error(f"🚨 待沖銷總計: ${total_debt:,.0f}")
         st.metric("✅ 活存現金流 (b)", f"${union_total - total_debt - union_cc:,.0f}")
 
@@ -296,7 +307,7 @@ with tab4:
         cathay_cc = st.number_input("本期信用卡繳款 (c)", value=25000, step=1, key="cathay_cc")
         st.metric("✅ 可投資金額 (b)", f"${cathay_total - cathay_cc:,.0f}")
 
-    valid_extra_banks = st.session_state.custom_banks_v3.dropna(subset=["銀行名稱"])
+    valid_extra_banks = st.session_state.current_custom_banks_v3.dropna(subset=["銀行名稱"])
     valid_extra_banks = valid_extra_banks[valid_extra_banks["銀行名稱"].str.strip() != ""]
     if not valid_extra_banks.empty:
         st.markdown("---")
