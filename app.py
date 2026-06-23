@@ -333,8 +333,6 @@ with tab4:
             st.session_state.loan_data["principal"] -= (monthly_pmt - (p * monthly_rate))
             st.session_state.loan_data["periods"] -= 1
             st.rerun()
-        
-        ctbc_reserve = st.number_input("🔒 預留貸款金額", value=int(monthly_pmt * 3), step=1)
 
     with col_union:
         st.markdown(f"### 💳 {bank_2_name}\n**{hub2_label}**")
