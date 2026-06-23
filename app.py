@@ -56,14 +56,23 @@ if st.session_state.user is None:
 if "data_loaded" not in st.session_state:
     response = supabase.table("user_data").select("data").eq("user_id", st.session_state.user.id).execute()
     
-    # 如果雲端有資料，就用雲端的；沒有就用預設的
     if response.data and response.data[0]["data"]:
         cloud_data = response.data[0]["data"]
-        st.session_state.debt_list = pd.DataFrame(cloud_data.get("debt_list", []))
+        
+        # 🛡️ 終極防呆機制：如果雲端存的是空陣列，強制賦予完整的欄位名稱，避免 KeyError
+        dl = cloud_data.get("debt_list", [])
+        st.session_state.debt_list = pd.DataFrame(dl) if dl else pd.DataFrame(columns=["已結清", "項目", "金額", "償還來源"])
+        
         st.session_state.loan_data = cloud_data.get("loan_data", {"principal": 500000.0, "rate": 2.5, "periods": 60})
-        st.session_state.custom_banks_v3 = pd.DataFrame(cloud_data.get("custom_banks_v3", []))
-        st.session_state.portfolio = pd.DataFrame(cloud_data.get("portfolio", []))
-        st.session_state.future_events = pd.DataFrame(cloud_data.get("future_events", []))
+        
+        cb = cloud_data.get("custom_banks_v3", [])
+        st.session_state.custom_banks_v3 = pd.DataFrame(cb) if cb else pd.DataFrame(columns=["功能標籤", "銀行名稱", "帳戶總額"])
+        
+        pf = cloud_data.get("portfolio", [])
+        st.session_state.portfolio = pd.DataFrame(pf) if pf else pd.DataFrame(columns=["市場", "股票代碼", "持有股數", "投入本金"])
+        
+        fe = cloud_data.get("future_events", [])
+        st.session_state.future_events = pd.DataFrame(fe) if fe else pd.DataFrame(columns=["發生月份", "事件名稱", "金額"])
     else:
         # 預設資料 (新註冊的使用者會看到這個)
         st.session_state.debt_list = pd.DataFrame({"已結清": [False]*7, "項目": ["釜山行程超支", "Elantra 車輛花費", "露營裝備", "潛水裝備", "Garmin 手錶", "五月透支", "宮古島機酒"], "金額": [10661, 14955, 32339, 18570, 42780, 13000, 27460], "償還來源": ["七月分紅", "七月分紅", "七月分紅", "七月分紅", "七月分紅", "六月加班費", "八月分紅"]})
