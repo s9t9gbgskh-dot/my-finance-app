@@ -73,6 +73,9 @@ if "data_loaded" not in st.session_state:
         
         fe = cloud_data.get("future_events", [])
         st.session_state.base_future_events = pd.DataFrame(fe) if fe else pd.DataFrame(columns=["發生月份", "事件名稱", "金額"])
+        
+        # 🌟 讀取雲端儲存的手動輸入數字
+        manual_inputs = cloud_data.get("manual_inputs", {})
     else:
         # 預設資料 (新註冊的使用者會看到這個)
         st.session_state.base_debt_list = pd.DataFrame({"已結清": [False]*7, "項目": ["釜山行程超支", "Elantra 車輛花費", "露營裝備", "潛水裝備", "Garmin 手錶", "五月透支", "宮古島機酒"], "金額": [10661, 14955, 32339, 18570, 42780, 13000, 27460], "償還來源": ["七月分紅", "七月分紅", "七月分紅", "七月分紅", "七月分紅", "六月加班費", "八月分紅"]})
@@ -80,7 +83,22 @@ if "data_loaded" not in st.session_state:
         st.session_state.base_custom_banks_v3 = pd.DataFrame({"功能標籤": ["一般活存"], "銀行名稱": ["渣打銀行"], "帳戶總額": [11111]})
         st.session_state.base_portfolio = pd.DataFrame({"市場": ["台股", "美股"], "股票代碼": ["2330.TW", "NVDA"], "持有股數": [321.0, 50.0], "投入本金": [445223.0, 5000.0]})   
         st.session_state.base_future_events = pd.DataFrame({"發生月份": ["第 1 個月", "第 1 個月", "第 2 個月", "第 10 個月"], "事件名稱": ["七月季分紅", "宮古島機酒扣款", "八月季分紅", "繳納牌照稅"], "金額": [140000, -27460, 140000, -7120]})
+        manual_inputs = {}
     
+    # 🌟 初始化所有手動輸入的獨立變數 (解決重整跑掉的問題)
+    default_manual = {
+        "ctbc_manual_cash": 250000,
+        "union_total": 250000,
+        "union_manual_reserve": 150000,
+        "union_cc": 8000,
+        "cathay_total": 180000,
+        "cathay_manual_reserve": 50000,
+        "cathay_cc": 25000
+    }
+    for k, v in default_manual.items():
+        if k not in st.session_state:
+            st.session_state[k] = manual_inputs.get(k, v)
+
     # 同步初始化 current 狀態
     st.session_state.current_debt_list = st.session_state.base_debt_list.copy()
     st.session_state.current_custom_banks_v3 = st.session_state.base_custom_banks_v3.copy()
@@ -95,16 +113,27 @@ st.sidebar.markdown("---")
 
 if st.sidebar.button("💾 儲存變更至雲端", type="primary"):
     with st.spinner("雲端同步中..."):
+        # 🌟 將所有手動輸入的數值打包準備上傳
+        manual_inputs_to_save = {
+            "ctbc_manual_cash": st.session_state.get("ctbc_manual_cash", 250000),
+            "union_total": st.session_state.get("union_total", 250000),
+            "union_manual_reserve": st.session_state.get("union_manual_reserve", 150000),
+            "union_cc": st.session_state.get("union_cc", 8000),
+            "cathay_total": st.session_state.get("cathay_total", 180000),
+            "cathay_manual_reserve": st.session_state.get("cathay_manual_reserve", 50000),
+            "cathay_cc": st.session_state.get("cathay_cc", 25000)
+        }
+        
         current_data = {
             "debt_list": st.session_state.current_debt_list.to_dict('records'),
             "loan_data": st.session_state.loan_data,
             "custom_banks_v3": st.session_state.current_custom_banks_v3.to_dict('records'),
             "portfolio": st.session_state.current_portfolio.to_dict('records'),
-            "future_events": st.session_state.current_future_events.to_dict('records')
+            "future_events": st.session_state.current_future_events.to_dict('records'),
+            "manual_inputs": manual_inputs_to_save # 🌟 寫入雲端
         }
         supabase.table("user_data").upsert({"user_id": st.session_state.user.id, "data": current_data}).execute()
         
-        # 🛡️ 儲存後，把當前的狀態變成新的基準線，確保下次動作不會跳回舊資料
         st.session_state.base_debt_list = st.session_state.current_debt_list.copy()
         st.session_state.base_custom_banks_v3 = st.session_state.current_custom_banks_v3.copy()
         st.session_state.base_portfolio = st.session_state.current_portfolio.copy()
@@ -119,22 +148,18 @@ if st.sidebar.button("登出"):
     st.session_state.pop("data_loaded", None)
     st.rerun()
 
-import datetime
-
 # ==================================================================
 # 👇 系統核心介面
 # ==================================================================
+import datetime
 st.title("💰 我的專屬資產管理系統")
 
-# 建立四個分頁容器
 tab1, tab2, tab3, tab4 = st.tabs(["📊 總覽儀表板", "🏦 12個月資金跑道", "📈 投資部位", "💳 帳戶與代墊"])
 
 with tab2:
     st.subheader("🏦 12個月資金跑道 (動態預測)")
-    
     st.markdown("### 🔮 模擬未來大筆收支 *(不包含每個月信用貸款)*")
 
-    # 🌟 產生真實的未來 12 個月時間軸 (依照現實月份自動推進)
     today = datetime.date.today()
     current_year = today.year
     current_month = today.month
@@ -148,9 +173,9 @@ with tab2:
             y += 1
         month_options.append(f"{y}/{m:02d}")
 
-    # 💡 提示：因為時間軸選項變了，原本儲存在資料庫的「第 X 個月」在第一次開啟時可能會讀不到，只要重新點選新月份即可。
     st.session_state.current_future_events = st.data_editor(
         st.session_state.base_future_events, num_rows="dynamic", use_container_width=True, hide_index=True,
+        column_order=("發生月份", "事件名稱", "金額"), # 🌟 強制鎖定欄位順序！
         column_config={
             "發生月份": st.column_config.SelectboxColumn("發生月份", options=month_options, required=True),
             "事件名稱": st.column_config.TextColumn("事件名稱", required=True),
@@ -161,7 +186,6 @@ with tab2:
     st.markdown("---")
     st.markdown("### 📊 12個月滾動水位預測")
     
-    # 🌟 第一列起始金額連動 Tab 1 聯邦總額
     current_cash = st.session_state.get("union_total", 250000)
     runway_data = []
     
@@ -175,8 +199,6 @@ with tab2:
             event_total = 0
             
         end_of_month_cash = current_cash + event_total
-        
-        # 🌟 月底安全水位判斷：現金流 + 特殊金額 >= 0 則為通過
         status = "✅ 通過" if end_of_month_cash >= 0 else "❌ 資金缺口"
         
         runway_data.append({
@@ -187,7 +209,6 @@ with tab2:
             "🏁 月底安全水位": status
         })
         
-        # 結算後的金額成為下個月的起點
         current_cash = end_of_month_cash
 
     df_runway = pd.DataFrame(runway_data)
@@ -204,6 +225,7 @@ with tab3:
     
     st.session_state.current_portfolio = st.data_editor(
         st.session_state.base_portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
+        column_order=("市場", "股票代碼", "持有股數", "投入本金"), # 🌟 強制鎖定欄位順序！
         column_config={
             "市場": st.column_config.SelectboxColumn("市場", options=["台股", "美股", "加密貨幣"], required=True),
             "股票代碼": st.column_config.TextColumn("股票代碼 (Ticker)", required=True),
@@ -264,7 +286,6 @@ with tab3:
                     except Exception:
                         with cols[i % 3]: st.error(f"無法抓取 {ticker_symbol}")
                 
-                # 更新計算後的總現值到記憶體，交由位於程式碼下方的 Tab 1 直接無縫讀取
                 st.session_state.total_val_twd = total_val_twd
                 
                 st.markdown("---")
@@ -289,6 +310,7 @@ with tab4:
         st.write("新增其他一般活存帳戶：")
         st.session_state.current_custom_banks_v3 = st.data_editor(
             st.session_state.base_custom_banks_v3, num_rows="dynamic", use_container_width=True, hide_index=True, 
+            column_order=("功能標籤", "銀行名稱", "帳戶總額"), # 🌟 強制鎖定
             column_config={"帳戶總額": st.column_config.NumberColumn("帳戶總額", default=0, step=1, format="$ %d")}, key="custom_banks_editor_v3"
         )
 
@@ -316,15 +338,21 @@ with tab4:
 
     with col_union:
         st.markdown(f"### 💳 {bank_2_name}\n**{hub2_label}**")
-        union_cc = st.number_input("本期信用卡繳款", value=8000, step=1, key="union_cc")
+        # 🌟 拿掉 value，全權交給 key 去讀取 session_state
+        union_cc = st.number_input("本期信用卡繳款", step=1, key="union_cc")
         st.markdown("**📋 動態待沖銷清單**")
-        st.session_state.current_debt_list = st.data_editor(st.session_state.base_debt_list, num_rows="dynamic", use_container_width=True, column_config={"金額": st.column_config.NumberColumn("金額", format="$%d")}, key="debt_editor")
+        st.session_state.current_debt_list = st.data_editor(
+            st.session_state.base_debt_list, num_rows="dynamic", use_container_width=True, 
+            column_order=("已結清", "項目", "金額", "償還來源"), # 🌟 強制鎖定
+            column_config={"金額": st.column_config.NumberColumn("金額", format="$%d")}, key="debt_editor"
+        )
         total_debt = st.session_state.current_debt_list[st.session_state.current_debt_list["已結清"] == False]["金額"].sum()
         st.error(f"🚨 待沖銷總計: ${total_debt:,.0f}")
 
     with col_cathay:
         st.markdown(f"### 🌳 {bank_3_name}\n**{hub3_label}**")
-        cathay_cc = st.number_input("本期信用卡繳款", value=25000, step=1, key="cathay_cc")
+        # 🌟 拿掉 value，全權交給 key 去讀取 session_state
+        cathay_cc = st.number_input("本期信用卡繳款", step=1, key="cathay_cc")
 
     valid_extra_banks = st.session_state.current_custom_banks_v3.dropna(subset=["銀行名稱"])
     valid_extra_banks = valid_extra_banks[valid_extra_banks["銀行名稱"].str.strip() != ""]
@@ -344,10 +372,9 @@ with tab1:
     st.subheader("🎯 財務快照與跨帳戶連動")
     
     total_val_twd = st.session_state.get("total_val_twd", 0) 
-    union_reserve_temp = st.session_state.get("union_manual_reserve", 150000)
-    cathay_reserve_temp = st.session_state.get("cathay_manual_reserve", 50000)
-
-    total_assets = total_val_twd + cathay_reserve_temp + union_reserve_temp
+    
+    # 計算目前總資產 (抓取 session_state 內的儲備金)
+    total_assets = total_val_twd + st.session_state.get("cathay_manual_reserve", 50000) + st.session_state.get("union_manual_reserve", 150000)
     st.metric("💰 目前總資產", f"NT$ {total_assets:,.0f}", help="公式: 國泰總投資現值 + 國泰投資儲備金 + 聯邦現金流儲備")
     st.markdown("---")
 
@@ -355,26 +382,29 @@ with tab1:
     
     with col1:
         st.markdown("### 🏦 中信")
-        ctbc_cash = st.number_input("(a) 可花費金額", value=st.session_state.get("ctbc_manual_cash", 250000), step=1000, key="ctbc_manual_cash")
+        # 🌟 拿掉 value，全權交給 key
+        ctbc_cash = st.number_input("(a) 可花費金額", step=1000, key="ctbc_manual_cash")
         st.metric("(b) 本月應繳貸款", f"${monthly_pmt:,.0f}", help="連動：帳戶與代墊 (中信)")
         st.caption("*(每月賣alpha股來還)*")
         
     with col2:
         st.markdown("### 💳 聯邦")
-        union_total = st.number_input("(a) 帳戶總金額", value=st.session_state.get("union_total", 250000), step=1000, key="union_total")
-        union_reserve = st.number_input("(b) 本月應有現金流儲備", value=union_reserve_temp, step=1000, key="union_manual_reserve")
-        st.metric("(c) 本月應繳卡費", f"${union_cc:,.0f}", help="連動：帳戶與代墊 (聯邦)")
+        # 🌟 拿掉 value，全權交給 key
+        union_total = st.number_input("(a) 帳戶總金額", step=1000, key="union_total")
+        union_reserve = st.number_input("(b) 本月應有現金流儲備", step=1000, key="union_manual_reserve")
+        st.metric("(c) 本月應繳卡費", f"${st.session_state.get('union_cc', 8000):,.0f}", help="連動：帳戶與代墊 (聯邦)")
         st.metric("(d) 代墊總計", f"${total_debt:,.0f}", help="連動：帳戶與代墊 (待沖銷清單)")
         
-        union_shortfall = union_reserve - union_total + union_cc - total_debt
+        union_shortfall = union_reserve - union_total + st.session_state.get('union_cc', 8000) - total_debt
         st.metric("(e) 聯邦缺損金額", f"${union_shortfall:,.0f}", help="公式：(b) - (a) + (c) - (d)")
 
     with col3:
         st.markdown("### 🌳 國泰")
-        cathay_total = st.number_input("(a) 帳戶總金額", value=st.session_state.get("cathay_total", 180000), step=1000, key="cathay_total")
-        cathay_reserve = st.number_input("(b) 本月應有投資儲備金", value=cathay_reserve_temp, step=1000, key="cathay_manual_reserve")
-        st.metric("(c) 本月應繳卡費", f"${cathay_cc:,.0f}", help="連動：帳戶與代墊 (國泰)")
+        # 🌟 拿掉 value，全權交給 key
+        cathay_total = st.number_input("(a) 帳戶總金額", step=1000, key="cathay_total")
+        cathay_reserve = st.number_input("(b) 本月應有投資儲備金", step=1000, key="cathay_manual_reserve")
+        st.metric("(c) 本月應繳卡費", f"${st.session_state.get('cathay_cc', 25000):,.0f}", help="連動：帳戶與代墊 (國泰)")
         
-        cathay_shortfall = cathay_reserve - cathay_total + cathay_cc
+        cathay_shortfall = cathay_reserve - cathay_total + st.session_state.get('cathay_cc', 25000)
         st.metric("(d) 國泰缺損金額", f"${cathay_shortfall:,.0f}", help="公式：(b) - (a) + (c)")
         st.metric("(e) 總投資現值", f"${total_val_twd:,.0f}", help="連動：投資部位 (即時匯率換算後)")
