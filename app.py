@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from supabase import create_client, Client
+import re  # 確保 import re 在最前面或這裡
 
 st.set_page_config(page_title="個人財務戰情室", layout="wide")
 
@@ -15,17 +16,20 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==================================================================
-# 🔐 密碼重置攔截器
+# 🌟 1. 密碼重置攔截器 (解決 UI/UX 跳轉與 Token 讀取問題)
 # ==================================================================
-# 當使用者點擊忘記密碼信件中的連結時，網址會自帶 ?code=xxx
-if "code" in st.query_params:
+# 攔截信件中帶有 ?token=xxx&type=recovery 的網址
+if "token" in st.query_params and st.query_params.get("type") == "recovery":
     try:
-        # 用網址上的 code 向 Supabase 換取暫時登入授權
-        supabase.auth.exchange_code_for_session({"auth_code": st.query_params["code"]})
-        st.query_params.clear()  # 清除網址列的 code，避免重新整理時重複觸發
+        # 使用網址上的 token_hash 驗證身分並登入
+        supabase.auth.verify_otp({
+            "token_hash": st.query_params["token"],
+            "type": "recovery"
+        })
+        st.query_params.clear()  # 清除網址參數避免重複觸發
         st.session_state.reset_password_mode = True  # 開啟「重設密碼」模式
     except Exception as e:
-        st.error("⚠️ 連結已失效或發生錯誤，請重新發送重置信件。")
+        st.error(f"⚠️ 連結已失效或發生錯誤：{e}")
         st.query_params.clear()
 
 # 如果目前處於「重設密碼」模式，就只顯示這個專屬畫面
@@ -42,7 +46,7 @@ if st.session_state.get("reset_password_mode", False):
                 st.success("✅ 密碼修改成功！系統即將為您重新載入...")
                 st.session_state.reset_password_mode = False
                 
-                # 清除暫存讓使用者重新登入，或是直接讓他保持登入狀態
+                # 清除暫存讓使用者重新登入
                 st.session_state.user = None 
                 st.rerun()
             except Exception as e:
@@ -51,6 +55,7 @@ if st.session_state.get("reset_password_mode", False):
             st.warning("密碼長度必須大於 6 碼！")
             
     st.stop()  # 🌟 重要：擋住下方的程式碼，不要顯示一般的登入畫面或主系統
+
 
 # === 🟢 建立 App 的登入記憶 ===
 if "user" not in st.session_state:
@@ -73,30 +78,24 @@ if st.session_state.user is None:
                 st.rerun()
             except Exception as e:
                 st.error("登入失敗，請檢查帳號密碼。")
-    
-        st.markdown("---")
-        with st.expander("忘記密碼？"):
-            reset_email = st.text_input("輸入註冊時的信箱", key="reset_email_input")
-            if st.button("發送重置密碼信件"):
-                if reset_email:
-                    try:
-                        # 呼叫 Supabase 的忘記密碼 API
-                        supabase.auth.reset_password_email(reset_email)
-                        st.success("✅ 重置信件已發送！請去信箱收信並點擊連結。")
-                    except Exception as e:
-                        st.error(f"發送失敗，請確認信箱是否正確。錯誤訊息：{e}")
-                else:
-                    st.warning("請先輸入信箱！")
 
     with tab_signup:
         signup_email = st.text_input("註冊信箱 (Email)")
-        signup_password = st.text_input("設定密碼 (至少 6 碼)", type="password")
+        signup_password = st.text_input("設定密碼（至少 6 碼）", type="password")
+        
         if st.button("註冊帳號"):
-            try:
-                response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
-                st.success("🎉 註冊成功！請直接切換到左側「登入」分頁進行登入。")
-            except Exception as e:
-                st.error(f"註冊失敗：{e}")
+            # 檢查信箱格式是否正確 (UI/UX 優化)
+            email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+            if not re.match(email_pattern, signup_email):
+                st.error("⚠️ 請輸入有效的 Email 格式！")
+            elif len(signup_password) < 6:
+                st.error("⚠️ 密碼長度必須至少 6 碼！")
+            else:
+                try:
+                    response = supabase.auth.sign_up({"email": signup_email, "password": signup_password})
+                    st.success("🎉 註冊成功！請至您的信箱點擊認證信件，完成後再切換到「登入」分頁進行登入。")
+                except Exception as e:
+                    st.error(f"註冊失敗：{e}")
 
     st.stop() 
 
@@ -104,14 +103,15 @@ if st.session_state.user is None:
 # 👇 登入成功後：讀取雲端資料與初始化
 # ==================================================================
 
-# 讀取使用者的雲端保險箱
+# 🌟 2. 資料隔離 (Data Isolation)：確保只讀取當下登入使用者的資料
 if "data_loaded" not in st.session_state:
+    # 嚴格過濾 .eq("user_id", st.session_state.user.id)
     response = supabase.table("user_data").select("data").eq("user_id", st.session_state.user.id).execute()
     
     if response.data and response.data[0]["data"]:
         cloud_data = response.data[0]["data"]
         
-        # 🛡️ 拆分變數：建立「基準線 (base)」防止畫面彈跳與 KeyError 空值崩潰
+        # 拆分變數：建立「基準線 (base)」防止畫面彈跳與 KeyError 空值崩潰
         dl = cloud_data.get("debt_list", [])
         st.session_state.base_debt_list = pd.DataFrame(dl) if dl else pd.DataFrame(columns=["已結清", "項目", "金額", "償還來源"])
         
@@ -126,7 +126,6 @@ if "data_loaded" not in st.session_state:
         fe = cloud_data.get("future_events", [])
         st.session_state.base_future_events = pd.DataFrame(fe) if fe else pd.DataFrame(columns=["發生月份", "事件名稱", "金額"])
         
-        # 🌟 讀取雲端儲存的手動輸入數字
         manual_inputs = cloud_data.get("manual_inputs", {})
     else:
         # 預設資料 (新註冊的使用者會看到這個)
@@ -137,7 +136,7 @@ if "data_loaded" not in st.session_state:
         st.session_state.base_future_events = pd.DataFrame({"發生月份": ["第 1 個月", "第 1 個月", "第 2 個月", "第 10 個月"], "事件名稱": ["七月季分紅", "宮古島機酒扣款", "八月季分紅", "繳納牌照稅"], "金額": [140000, -27460, 140000, -7120]})
         manual_inputs = {}
     
-    # 🌟 初始化所有手動輸入的獨立變數 (解決重整跑掉的問題)
+    # 初始化所有手動輸入的獨立變數 (解決重整跑掉的問題)
     default_manual = {
         "ctbc_manual_cash": 250000,
         "union_total": 250000,
@@ -165,7 +164,6 @@ st.sidebar.markdown("---")
 
 if st.sidebar.button("💾 儲存變更至雲端", type="primary"):
     with st.spinner("雲端同步中..."):
-        # 🌟 將所有手動輸入的數值打包準備上傳
         manual_inputs_to_save = {
             "ctbc_manual_cash": st.session_state.get("ctbc_manual_cash", 250000),
             "union_total": st.session_state.get("union_total", 250000),
@@ -182,9 +180,14 @@ if st.sidebar.button("💾 儲存變更至雲端", type="primary"):
             "custom_banks_v3": st.session_state.current_custom_banks_v3.to_dict('records'),
             "portfolio": st.session_state.current_portfolio.to_dict('records'),
             "future_events": st.session_state.current_future_events.to_dict('records'),
-            "manual_inputs": manual_inputs_to_save # 🌟 寫入雲端
+            "manual_inputs": manual_inputs_to_save
         }
-        supabase.table("user_data").upsert({"user_id": st.session_state.user.id, "data": current_data}).execute()
+        
+        # 🌟 2. 資料隔離 (Data Isolation)：寫入時嚴格綁定該 user_id
+        supabase.table("user_data").upsert({
+            "user_id": st.session_state.user.id, 
+            "data": current_data
+        }).execute()
         
         st.session_state.base_debt_list = st.session_state.current_debt_list.copy()
         st.session_state.base_custom_banks_v3 = st.session_state.current_custom_banks_v3.copy()
@@ -225,9 +228,10 @@ with tab2:
             y += 1
         month_options.append(f"{y}/{m:02d}")
 
+    # 🌟 3. UI/UX 優化：強制鎖定欄位 column_order
     st.session_state.current_future_events = st.data_editor(
         st.session_state.base_future_events, num_rows="dynamic", use_container_width=True, hide_index=True,
-        column_order=("發生月份", "事件名稱", "金額"), # 🌟 強制鎖定欄位順序！
+        column_order=("發生月份", "事件名稱", "金額"), 
         column_config={
             "發生月份": st.column_config.SelectboxColumn("發生月份", options=month_options, required=True),
             "事件名稱": st.column_config.TextColumn("事件名稱", required=True),
@@ -275,9 +279,10 @@ with tab3:
     st.info("💡 **輸入指南**：美股直接輸入代碼（例 `NVDA`）、台股加 `.TW`（例 `2330.TW`）、加密貨幣輸入國際代碼（例 `BTC-USD`）\n\n"
             "💵 **幣別指南**：台股請輸入「台幣」本金，美股與加密貨幣請填寫「美金」本金。系統將自動抓取即時匯率計算總資產。")
     
+    # 🌟 3. UI/UX 優化：強制鎖定欄位 column_order
     st.session_state.current_portfolio = st.data_editor(
         st.session_state.base_portfolio, num_rows="dynamic", use_container_width=True, hide_index=True,
-        column_order=("市場", "股票代碼", "持有股數", "投入本金"), # 🌟 強制鎖定欄位順序！
+        column_order=("市場", "股票代碼", "持有股數", "投入本金"), 
         column_config={
             "市場": st.column_config.SelectboxColumn("市場", options=["台股", "美股", "加密貨幣"], required=True),
             "股票代碼": st.column_config.TextColumn("股票代碼 (Ticker)", required=True),
@@ -362,7 +367,7 @@ with tab4:
         st.write("新增其他一般活存帳戶：")
         st.session_state.current_custom_banks_v3 = st.data_editor(
             st.session_state.base_custom_banks_v3, num_rows="dynamic", use_container_width=True, hide_index=True, 
-            column_order=("功能標籤", "銀行名稱", "帳戶總額"), # 🌟 強制鎖定
+            column_order=("功能標籤", "銀行名稱", "帳戶總額"), 
             column_config={"帳戶總額": st.column_config.NumberColumn("帳戶總額", default=0, step=1, format="$ %d")}, key="custom_banks_editor_v3"
         )
 
@@ -388,12 +393,11 @@ with tab4:
 
     with col_union:
         st.markdown(f"### 💳 {bank_2_name}\n**{hub2_label}**")
-        # 🌟 拿掉 value，全權交給 key 去讀取 session_state
         union_cc = st.number_input("本期信用卡繳款", step=1, key="union_cc")
         st.markdown("**📋 動態待沖銷清單**")
         st.session_state.current_debt_list = st.data_editor(
             st.session_state.base_debt_list, num_rows="dynamic", use_container_width=True, 
-            column_order=("已結清", "項目", "金額", "償還來源"), # 🌟 強制鎖定
+            column_order=("已結清", "項目", "金額", "償還來源"), 
             column_config={"金額": st.column_config.NumberColumn("金額", format="$%d")}, key="debt_editor"
         )
         total_debt = st.session_state.current_debt_list[st.session_state.current_debt_list["已結清"] == False]["金額"].sum()
@@ -401,7 +405,6 @@ with tab4:
 
     with col_cathay:
         st.markdown(f"### 🌳 {bank_3_name}\n**{hub3_label}**")
-        # 🌟 拿掉 value，全權交給 key 去讀取 session_state
         cathay_cc = st.number_input("本期信用卡繳款", step=1, key="cathay_cc")
 
     valid_extra_banks = st.session_state.current_custom_banks_v3.dropna(subset=["銀行名稱"])
@@ -416,7 +419,7 @@ with tab4:
                 st.metric("目前總額", f"${row['帳戶總額'] if pd.notna(row['帳戶總額']) else 0:,.0f}")
 
 # ==================================================================
-# 🌟 將 Tab 1 移到檔案最後面執行，實現「更新報價後完美瞬間連動」！
+# 🌟 4. UI/UX 優化：將 Tab 1 移到檔案最後面執行，實現「更新報價後完美瞬間連動」！
 # ==================================================================
 with tab1:
     st.subheader("🎯 財務快照與跨帳戶連動")
@@ -432,14 +435,12 @@ with tab1:
     
     with col1:
         st.markdown("### 🏦 中信")
-        # 🌟 拿掉 value，全權交給 key
         ctbc_cash = st.number_input("(a) 可花費金額", step=1000, key="ctbc_manual_cash")
         st.metric("(b) 本月應繳貸款", f"${monthly_pmt:,.0f}", help="連動：帳戶與代墊 (中信)")
         st.caption("*(每月賣alpha股來還)*")
         
     with col2:
         st.markdown("### 💳 聯邦")
-        # 🌟 拿掉 value，全權交給 key
         union_total = st.number_input("(a) 帳戶總金額", step=1000, key="union_total")
         union_reserve = st.number_input("(b) 本月應有現金流儲備", step=1000, key="union_manual_reserve")
         st.metric("(c) 本月應繳卡費", f"${st.session_state.get('union_cc', 8000):,.0f}", help="連動：帳戶與代墊 (聯邦)")
@@ -450,7 +451,6 @@ with tab1:
 
     with col3:
         st.markdown("### 🌳 國泰")
-        # 🌟 拿掉 value，全權交給 key
         cathay_total = st.number_input("(a) 帳戶總金額", step=1000, key="cathay_total")
         cathay_reserve = st.number_input("(b) 本月應有投資儲備金", step=1000, key="cathay_manual_reserve")
         st.metric("(c) 本月應繳卡費", f"${st.session_state.get('cathay_cc', 25000):,.0f}", help="連動：帳戶與代墊 (國泰)")
