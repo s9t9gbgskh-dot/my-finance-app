@@ -35,6 +35,20 @@ if st.session_state.user is None:
                 st.rerun()
             except Exception as e:
                 st.error("登入失敗，請檢查帳號密碼。")
+    
+        st.markdown("---")
+        with st.expander("忘記密碼？"):
+            reset_email = st.text_input("輸入註冊時的信箱", key="reset_email_input")
+            if st.button("發送重置密碼信件"):
+                if reset_email:
+                    try:
+                        # 呼叫 Supabase 的忘記密碼 API
+                        supabase.auth.reset_password_email(reset_email)
+                        st.success("✅ 重置信件已發送！請去信箱收信並點擊連結。")
+                    except Exception as e:
+                        st.error(f"發送失敗，請確認信箱是否正確。錯誤訊息：{e}")
+                else:
+                    st.warning("請先輸入信箱！")
 
     with tab_signup:
         signup_email = st.text_input("註冊信箱 (Email)")
