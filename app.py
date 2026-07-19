@@ -14,6 +14,44 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 
+# ==================================================================
+# 🔐 密碼重置攔截器
+# ==================================================================
+# 當使用者點擊忘記密碼信件中的連結時，網址會自帶 ?code=xxx
+if "code" in st.query_params:
+    try:
+        # 用網址上的 code 向 Supabase 換取暫時登入授權
+        supabase.auth.exchange_code_for_session({"auth_code": st.query_params["code"]})
+        st.query_params.clear()  # 清除網址列的 code，避免重新整理時重複觸發
+        st.session_state.reset_password_mode = True  # 開啟「重設密碼」模式
+    except Exception as e:
+        st.error("⚠️ 連結已失效或發生錯誤，請重新發送重置信件。")
+        st.query_params.clear()
+
+# 如果目前處於「重設密碼」模式，就只顯示這個專屬畫面
+if st.session_state.get("reset_password_mode", False):
+    st.title("🔐 設定新密碼")
+    st.info("請為您的帳號設定新的密碼。")
+    
+    new_pwd = st.text_input("請輸入新密碼 (至少 6 碼)", type="password")
+    if st.button("確認修改並登入"):
+        if len(new_pwd) >= 6:
+            try:
+                # 呼叫 Supabase 更新使用者密碼
+                supabase.auth.update_user({"password": new_pwd})
+                st.success("✅ 密碼修改成功！系統即將為您重新載入...")
+                st.session_state.reset_password_mode = False
+                
+                # 清除暫存讓使用者重新登入，或是直接讓他保持登入狀態
+                st.session_state.user = None 
+                st.rerun()
+            except Exception as e:
+                st.error(f"修改失敗：{e}")
+        else:
+            st.warning("密碼長度必須大於 6 碼！")
+            
+    st.stop()  # 🌟 重要：擋住下方的程式碼，不要顯示一般的登入畫面或主系統
+
 # === 🟢 建立 App 的登入記憶 ===
 if "user" not in st.session_state:
     st.session_state.user = None
